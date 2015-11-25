@@ -18,131 +18,420 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
   <script src="../../web-component-tester/browser.js"></script>
   <script src="../../test-fixture/test-fixture-mocha.js"></script>
 
-  <link rel="import" href="../paper-progress.html">
+  <link rel="import" href="../../promise-polyfill/promise-polyfill-lite.html">
   <link rel="import" href="../../test-fixture/test-fixture.html">
+  <link rel="import" href="../paper-linear-progress.html">
 </head>
 <body>
-
-
-  <test-fixture id="trivialProgress">
+  <test-fixture id="default">
     <template>
-      <paper-progress></paper-progress>
+      <paper-linear-progress id="progress"></paper-linear-progress>
     </template>
   </test-fixture>
 
-  <test-fixture id="transitingProgress">
+  <test-fixture id="preset-values">
     <template>
-      <paper-progress class="transiting"></paper-progress>
+      <paper-linear-progress value="50" buffer-value="80"></paper-linear-progress>
+    </template>
+  </test-fixture>
+
+  <test-fixture id="indeterminate">
+    <template>
+      <paper-linear-progress indeterminate></paper-linear-progress>
+    </template>
+  </test-fixture>
+
+  <test-fixture id="reversed">
+    <template>
+      <paper-linear-progress reversed></paper-linear-progress>
+    </template>
+  </test-fixture>
+
+  <test-fixture id="buffering">
+    <template>
+      <paper-linear-progress buffering></paper-linear-progress>
+    </template>
+  </test-fixture>
+
+  <test-fixture id="closed">
+    <template>
+      <paper-linear-progress closed></paper-linear-progress>
+    </template>
+  </test-fixture>
+
+  <test-fixture id="container">
+    <template>
+      <!-- NOTE(traviskaufman): The template will not render without these divs. -->
+      <div></div>
     </template>
   </test-fixture>
 
   <script>
+    var flushPromise = function() {
+      return new Promise(flush);
+    };
+
+    var getTransform = function(el) {
+      var style = el.style;
+      return style.transform || style.WebkitTransform;
+    };
+
+    // Mixin sinon's asserts into chai's assertion API.
+    sinon.assert.expose(chai.assert, { prefix: '' });
+
+    var progress;
+
     suite('basic features', function() {
-      var progress;
-
       setup(function() {
-        progress = fixture('trivialProgress');
+        progress = fixture('default');
       });
 
-      test('check default', function() {
-        assert.equal(progress.min, 0);
-        assert.equal(progress.max, 100);
+      test('sets correct default values', function() {
         assert.equal(progress.value, 0);
+        assert.equal(progress.bufferValue, 100);
       });
 
-      test('set value', function(done) {
-        progress.value = 50;
-        asyncPlatformFlush(function() {
-          assert.equal(progress.value, 50);
-          // test clamp value
-          progress.value = 60.1;
-          asyncPlatformFlush(function() {
-            assert.equal(progress.value, 60);
-            done();
-          });
+      test('correctly intializes buffering dots background', function() {
+        var bufferBgColor = window.getComputedStyle(progress.$.buffer).backgroundColor;
+        var bgUrl = progress.$.bufferingDots.style.backgroundImage;
+        var urlCapture = /^url\((["'])data:image\/svg\+xml;charset=UTF-8,(.+)\1\)$/;
+
+        var bgUrlMatch = bgUrl.match(urlCapture);
+        assert.lengthOf(bgUrlMatch, 3, 'Incorrect background URL for buffering dots: ' + bgUrl);
+
+        var encodedBgImage = bgUrlMatch[2];
+        var actualBgImage = decodeURIComponent(encodedBgImage).replace('%27', '\'');
+        var expectedBgImage = '' +
+          '<svg version=\'1.1\' ' +
+              'xmlns=\'http://www.w3.org/2000/svg\' ' +
+              'xmlns:xlink=\'http://www.w3.org/1999/xlink\' ' +
+              'x=\'0px\' y=\'0px\' ' +
+              'enable-background=\'new 0 0 5 2\' ' +
+              'xml:space=\'preserve\' ' +
+              'viewBox=\'0 0 5 2\' ' +
+              'preserveAspectRatio=\'none slice\'> ' +
+            '<circle cx=\'1\' cy=\'1\' r=\'1\' fill=\'' + bufferBgColor + '\'/>' +
+          '</svg>';
+
+        assert.equal(actualBgImage, expectedBgImage);
+      });
+
+      test('correctly initializes animation config', function() {
+        var height = parseInt(window.getComputedStyle(progress).height, 10);
+        var translationAmt = 2.5 * height;
+        var config = progress.animationConfig;
+
+        assert.property(config, 'buffering');
+        assert.deepProperty(config, 'buffering.name', 'transform-animation');
+        assert.deepProperty(config, 'buffering.node.id', 'bufferingDots');
+        assert.deepProperty(config, 'buffering.transformFrom', 'translateX(0px)');
+        assert.deepProperty(
+          config, 'buffering.transformTo', 'translateX(' + (translationAmt * -1) + 'px)'
+        );
+        assert.deepProperty(config, 'buffering.timing.duration', 250);
+        assert.deepProperty(config, 'buffering.timing.iterations', Infinity);
+        assert.deepProperty(config, 'buffering.timing.easing', 'linear');
+
+        assert.property(config, 'buffering-reverse');
+        assert.deepProperty(config, 'buffering-reverse.name', 'transform-animation');
+        assert.deepProperty(config, 'buffering-reverse.node.id', 'bufferingDots');
+        assert.deepProperty(config, 'buffering-reverse.transformFrom', 'translateX(0px)');
+        assert.deepProperty(
+          config, 'buffering-reverse.transformTo', 'translateX(' + translationAmt + 'px)'
+        );
+        assert.deepProperty(config, 'buffering-reverse.timing.duration', 250);
+        assert.deepProperty(config, 'buffering-reverse.timing.iterations', Infinity);
+        assert.deepProperty(config, 'buffering-reverse.timing.easing', 'linear');
+      });
+
+      test('correctly initializes ARIA attributes', function() {
+        assert.equal(progress.getAttribute('role'), 'progressbar');
+        assert.equal(progress.getAttribute('aria-valuemax'), '100');
+        assert.equal(progress.getAttribute('aria-valuemin'), '0');
+        assert.equal(progress.getAttribute('aria-valuenow'), '0');
+      });
+
+      test('sets value correctly', function() {
+        var newValue = 50;
+        var valueChangeHandler = sinon.spy();
+
+        progress.addEventListener('paper-linear-progress-value-change', valueChangeHandler);
+        progress.value = newValue;
+
+        return flushPromise().then(function() {
+          assert.equal(progress.value, newValue);
+          assert.equal(progress.getAttribute('aria-valuenow'), '50');
+          assert.equal(getTransform(progress.$.progressPrimary), 'scaleX(0.5)');
+          assert.calledWith(valueChangeHandler, sinon.match({
+            detail: {
+              value: newValue
+            }
+          }));
         });
       });
 
-      test('set max', function(done) {
-        progress.max = 10;
-        progress.value = 11;
-        asyncPlatformFlush(function() {
-          assert.equal(progress.value, progress.max);
-          done();
+      test('clamps progressPrimary transform value to a minimum of 0', function() {
+        progress.value = -1;
+        return flushPromise().then(function() {
+          assert.equal(getTransform(progress.$.progressPrimary), 'scaleX(0)');
         });
       });
 
-      test('test ratio', function(done) {
-        progress.max = 10;
-        progress.value = 5;
-        asyncPlatformFlush(function() {
-          assert.equal(progress.ratio, 50);
-          done();
+      test('clamps progressPrimary transform value to a maximum of 1', function() {
+        progress.value = 101;
+        return flushPromise().then(function() {
+          assert.equal(getTransform(progress.$.progressPrimary), 'scaleX(1)');
         });
       });
 
-      test('test secondary ratio', function(done) {
-        progress.max = 10;
-        progress.secondaryProgress = 5;
-        asyncPlatformFlush(function() {
-          assert.equal(progress.secondaryRatio, 50);
-          done();
+      test('sets buffer-value correctly', function() {
+        var newValue = 50;
+        var bufferChangeHandler = sinon.spy();
+
+        progress.addEventListener('paper-linear-progress-buffer-value-change', bufferChangeHandler);
+        progress.bufferValue = newValue;
+
+        return flushPromise().then(function() {
+          assert.equal(progress.bufferValue, newValue);
+          assert.equal(getTransform(progress.$.buffer), 'scaleX(0.5)');
+          assert.calledWith(bufferChangeHandler, sinon.match({
+            detail: {
+              bufferValue: newValue
+            }
+          }));
         });
       });
 
-      test('set min', function(done) {
-        progress.min = 10
-        progress.max = 50;
-        progress.value = 30;
-        asyncPlatformFlush(function() {
-          assert.equal(progress.ratio, 50);
-          progress.value = 0;
-          asyncPlatformFlush(function() {
-            assert.equal(progress.value, progress.min);
-            done();
-          });
+      test('clamps buffer-value to a minimum of 0', function() {
+        progress.bufferValue = -1;
+        return flushPromise().then(function() {
+          assert.equal(getTransform(progress.$.buffer), 'scaleX(0)');
         });
       });
 
-      test('set step', function(done) {
-        progress.min = 0;
-        progress.max = 10;
-        progress.value = 5.1;
-        asyncPlatformFlush(function() {
-          assert.equal(progress.value, 5);
-          progress.step = 0.1;
-          progress.value = 5.1;
-          asyncPlatformFlush(function() {
-            assert.equal(progress.value, 5.1);
-            done();
-          });
+      test('clamps buffer-value to a maximum of 100', function() {
+        progress.bufferValue = 101;
+        return flushPromise().then(function() {
+          assert.equal(getTransform(progress.$.buffer), 'scaleX(1)');
         });
       });
     });
 
-    suite('transiting class', function() {
-      var progress;
+    suite('preset values', function() {
+      setup(function() {
+        progress = fixture('preset-values');
+      });
+
+      test('maps value attribute to value property', function() {
+        assert.equal(progress.value, 50);
+      });
+
+      test('maps buffer-value attribute to bufferValue property', function() {
+        assert.equal(progress.bufferValue, 80);
+      });
+    });
+
+    suite('indeterminate', function() {
+      setup(function() {
+        progress = fixture('indeterminate');
+      });
+
+      test('adds the indeterminate class', function() {
+        assert.include(progress.className, 'indeterminate');
+      });
+
+      test('removes the indeterminate class when removed', function() {
+        progress.indeterminate = false;
+        return flushPromise().then(function() {
+          assert.notInclude(progress.className, 'indeterminate');
+        });
+      });
+
+      test('removes ARIA value-* attributes', function() {
+        assert.isFalse(progress.hasAttribute('aria-valuemax'));
+        assert.isFalse(progress.hasAttribute('aria-valuemin'));
+        assert.isFalse(progress.hasAttribute('aria-valuenow'));
+      });
+
+      test('adds ARIA value-* back when removed', function() {
+        progress.value = 50;
+        progress.indeterminate = false;
+        return flushPromise().then(function() {
+          assert.equal(progress.getAttribute('aria-valuemax'), '100');
+          assert.equal(progress.getAttribute('aria-valuemin'), '0');
+          assert.equal(
+            progress.getAttribute('aria-valuenow'), '50',
+            'aria-valuenow was not updated to the value set while indeterminate!'
+          );
+        });
+      });
+
+      test('does not immediately update aria-valuenow when value changes', function() {
+        progress.value = 50;
+        return flushPromise().then(function() {
+          assert.isFalse(progress.hasAttribute('aria-valuenow'));
+        });
+      });
+
+      test('works with reversed (added for branching coverage)', function() {
+        progress.reversed = true;
+        return flushPromise().then(function() {
+          assert.include(progress.className, 'indeterminate');
+          assert.include(progress.className, 'reversed');
+        });
+      });
+    });
+
+    suite('reversed', function() {
+      setup(function() {
+        progress = fixture('reversed');
+      });
+
+      test('adds the reversed class', function() {
+        assert.include(progress.className, 'reversed');
+      });
+
+      test('removes the reversed class when removed', function() {
+        progress.reversed = false;
+        return flushPromise().then(function() {
+          assert.notInclude(progress.className, 'reversed');
+        });
+      });
+
+      test('works with indeterminate (added for branching coverage)', function() {
+        progress.indeterminate = true;
+        return flushPromise().then(function() {
+          assert.include(progress.className, 'reversed');
+          assert.include(progress.className, 'indeterminate');
+        });
+      });
+    });
+
+    suite('buffering', function() {
+      setup(function() {
+        progress = fixture('buffering');
+      });
+
+      test('adds the buffering class', function() {
+        assert.include(progress.className, 'buffering');
+      });
+
+      test('plays the "buffering" animation', function() {
+        progress = fixture('default');
+        var playAnimationSpy = sinon.spy(progress, 'playAnimation');
+        progress.buffering = true;
+
+        return flushPromise().then(function() {
+          assert.calledWith(playAnimationSpy, 'buffering');
+        });
+      });
+
+      test('removes the buffering class when removed', function() {
+        progress.buffering = false;
+        return flushPromise().then(function() {
+          assert.notInclude(progress.className, 'buffering');
+        });
+      });
+
+      test('removes the "buffering" animation when removed', function() {
+        var cancelAnimationSpy = sinon.spy(progress, 'cancelAnimation');
+        progress.buffering = false;
+        return flushPromise().then(function() {
+          assert.called(cancelAnimationSpy);
+        });
+      });
+    });
+
+    suite('buffering + reversed', function() {
+      var playAnimationSpy;
 
       setup(function() {
-        progress = fixture('transitingProgress');
+        progress = fixture('buffering');
+        playAnimationSpy = sinon.spy(progress, 'playAnimation');
+        progress.reversed = true;
+
+        return flushPromise();
       });
 
-      test('progress bars', function() {
-        var stylesForPrimaryProgress = window.getComputedStyle(progress.$.primaryProgress);
-        var stylesForSecondaryProgress = window.getComputedStyle(progress.$.secondaryProgress);
-        var transitionProp = stylesForPrimaryProgress['transition-property'];
+      test('plays the "buffering-reverse" animation', function() {
+        assert.calledWith(playAnimationSpy, 'buffering-reverse');
+      });
 
-        assert.isTrue(transitionProp === 'transform' || transitionProp === '-webkit-transform');
-        assert.equal(stylesForPrimaryProgress['transition-duration'], '0.08s');
-
-        transitionProp = stylesForSecondaryProgress['transition-property'];
-
-        assert.isTrue(transitionProp === 'transform' || transitionProp === '-webkit-transform');
-        assert.equal(stylesForSecondaryProgress['transition-duration'], '0.08s');
+      test('switches to the "buffering" animation when reversed is removed', function() {
+        playAnimationSpy.reset();
+        progress.reversed = false;
+        return flushPromise().then(function() {
+          assert.calledWith(playAnimationSpy, 'buffering');
+        });
       });
     });
 
-  </script>
+    suite('handling buffering animations when element is not yet attached', function() {
+      var container;
+      var playAnimationSpy;
 
+      setup(function() {
+        container = fixture('container');
+        progress = document.createElement('paper-linear-progress');
+        playAnimationSpy = sinon.spy(progress, 'playAnimation');
+        progress.buffering = true;
+
+        return flushPromise();
+      });
+
+      test('does not play the animation until the element is appended', function() {
+        assert.notCalled(playAnimationSpy);
+        container.appendChild(progress);
+
+        return flushPromise().then(function() {
+          assert.called(playAnimationSpy);
+        });
+      });
+
+      test('does not play the animation if buffering is removed before attached', function() {
+        progress.buffering = false;
+        return flushPromise().then(function() {
+          container.appendChild(progress);
+          return flushPromise();
+        }).then(function() {
+          assert.notCalled(playAnimationSpy);
+        });
+      });
+
+      test('always honors the latest toggle', function() {
+        progress.buffering = false;
+        return flushPromise().then(function() {
+          progress.buffering = true;
+          return flushPromise();
+        }).then(function() {
+          container.appendChild(progress);
+          return flushPromise();
+        }).then(function() {
+          assert.called(playAnimationSpy);
+        });
+      });
+    });
+
+    suite('closed', function() {
+      setup(function() {
+        progress = fixture('closed');
+      });
+
+      test('adds the closed class', function() {
+        assert.include(progress.className, 'closed');
+      });
+
+      test('removes the closed class when removed', function() {
+        progress.closed = false;
+        return flushPromise().then(function() {
+          assert.notInclude(progress.className, 'closed');
+        });
+      });
+    });
+
+    suite('a11y coverage', function() {
+      a11ySuite('default');
+    });
+  </script>
 </body>
 </html>
