@@ -1,0 +1,837 @@
+<!--
+@license
+Copyright (c) 2015 The Polymer Project Authors. All rights reserved.
+This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
+The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
+The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
+Code distributed by Google as part of the polymer project is also
+subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
+-->
+
+<link rel="import" href="../polymer/polymer.html">
+<link rel="import" href="../paper-styles/color.html">
+<link rel="import" href="../neon-animation/neon-animation-runner-behavior.html">
+<link rel="import" href="../neon-animation/animations/transform-animation.html">
+
+<!--
+Material design: [Progress & activity](https://www.google.com/design/spec/components/progress-activity.html)
+
+Linear Progress elements are used to represent an operation that takes a known or unknown (aka
+"indeterminate") amount of time. They can be reversed in order to support RTL layouts and further
+differentiate between different phases of an operation. They can also display a "buffering" state,
+which is useful for operations involving the download of large content (e.g. media).
+
+Example:
+
+    <paper-linear-progress value="10"></paper-linear-progress>
+
+Example:
+
+    <paper-linear-progress buffering value="40" buffer-value="70"></paper-linear-progress>
+
+Example:
+
+    <paper-linear-progress indeterminate reversed></paper-linear-progress>
+
+### Styling the linear progress element:
+
+To change the progress bar color:
+
+    paper-linear-progress {
+       --paper-linear-progress-progress-bar-color: #e91e63;
+    }
+
+To change the buffer bar color:
+
+    paper-linear-progress {
+      --paper-linear-progress-buffer-bar-color: #f8bbd0;
+    }
+
+To change the height of the element:
+
+    paper-linear-progress {
+      --paper-linear-progress-height: 2px;
+    }
+
+The following custom properties are available for styling:
+
+Custom property                               | Description                                | Default
+----------------------------------------------|--------------------------------------------|--------------
+`--paper-linear-progress-progress-bar-color`  | The color of the progress bar(s).          | `--google-blue-500`
+`--paper-linear-progress-buffer-bar-color`    | The color of the buffer bar.               | `--google-blue-100`
+`--paper-linear-progress-height`              | The height of the element.                 | `4px`
+
+> _NOTE_: The default color values for the above custom properties are provided by [paper-styles](https://github.com/PolymerElements/paper-styles).
+
+@group Paper Elements
+@element paper-progress
+@demo demo/index.html
+@hero hero.svg
+-->
+
+<dom-module id="paper-linear-progress">
+  <template>
+    <style>
+      :host {
+        --element-height: var(--paper-linear-progress-height, 4px);
+        --progress-bar-color: var(--paper-linear-progress-progress-bar-color, --google-blue-500);
+        --buffer-bar-color: var(--paper-linear-progress-buffer-bar-color, --google-blue-100);
+
+        display: block;
+        height: var(--element-height);
+        overflow: hidden;
+        position: relative;
+        /** Force layer creation to prevent layout triggering on opacity transition. */
+        -webkit-transform: translateZ(0);
+        transform: translateZ(0);
+        -webkit-transition: opacity 250ms linear;
+        transition: opacity 250ms linear;
+        width: 100%;
+        will-change: transform;
+      }
+
+      #buffer,
+      #bufferingDots,
+      .progressBar,
+      .progressBarInner {
+        height: 100%;
+        position: absolute;
+        width: 100%;
+      }
+
+      #buffer,
+      .progressBar {
+        -webkit-transform-origin: top left;
+        -ms-transform-origin: top left;
+        transform-origin: top left;
+        -webkit-transition: -webkit-transform 250ms ease;
+        transition: transform 250ms ease;
+      }
+
+      .progressBar,
+      .progressBarInner {
+        /**
+         * NOTE(traviskaufman): This animation: none; is needed for stopping animation in IE/Edge on
+         * indeterminate removal.
+         */
+        -webkit-animation: none;
+        animation: none;
+      }
+
+      #buffer {
+        background-color: var(--buffer-bar-color);
+      }
+
+      #progressSecondary {
+        visibility: hidden;
+      }
+
+      .progressBarInner {
+        background-color: var(--progress-bar-color);
+        display: inline-block;
+      }
+
+      #bufferingDots {
+        background-repeat: repeat-x;
+        background-size: calc(2.5 * var(--element-height)) var(--element-height);
+        visibility: hidden;
+      }
+
+      :host(.indeterminate) .progressBar {
+        -webkit-transition: none;
+        transition: none;
+      }
+
+      :host(.indeterminate) #progressPrimary,
+      :host(.indeterminate) #progressPrimary > .progressBarInner,
+      :host(.indeterminate) #progressSecondary,
+      :host(.indeterminate) #progressSecondary > .progressBarInner {
+        -webkit-animation-duration: 2s;
+        animation-duration: 2s;
+        -webkit-animation-iteration-count: infinite;
+        animation-iteration-count: infinite;
+        -webkit-animation-timing-function: linear;
+        animation-timing-function: linear;
+      }
+
+      :host(.indeterminate) #progressPrimary {
+        -webkit-animation-name: primary-indeterminate-translate;
+        animation-name: primary-indeterminate-translate;
+        left: -145.166611%;
+      }
+
+      :host(.indeterminate) #progressPrimary > .progressBarInner {
+        -webkit-animation-name: primary-indeterminate-scale;
+        animation-name: primary-indeterminate-scale;
+      }
+
+      :host(.indeterminate) #progressSecondary {
+        -webkit-animation-name: secondary-indeterminate-translate;
+        animation-name: secondary-indeterminate-translate;
+        visibility: visible;
+        left: -54.888891%;
+      }
+
+      :host(.indeterminate) #progressSecondary > .progressBarInner {
+        -webkit-animation-name: secondary-indeterminate-scale;
+        animation-name: secondary-indeterminate-scale;
+      }
+
+      :host(.reversed) #buffer,
+      :host(.reversed) .progressBar {
+        right: 0;
+        -webkit-transform-origin: center right;
+        -ms-transform-origin: center right;
+        transform-origin: center right;
+      }
+
+      :host(.reversed) #progressPrimary {
+        -webkit-animation-name: primary-indeterminate-translate-reverse;
+        animation-name: primary-indeterminate-translate-reverse;
+      }
+
+      :host(.indeterminate.reversed) #progressPrimary {
+        left: auto;
+        right: -145.166611%;
+      }
+
+      :host(.reversed) #progressSecondary {
+        -webkit-animation-name: secondary-indeterminate-translate-reverse;
+        animation-name: secondary-indeterminate-translate-reverse;
+      }
+
+      :host(.indeterminate.reversed) #progressSecondary {
+        left: auto;
+        right: -54.888891%;
+      }
+
+      :host(.buffering) #bufferingDots,
+      :host(.buffering.reversed) #bufferingDots {
+        visibility: visible;
+      }
+
+      :host(.closed) {
+        opacity: 0;
+      }
+
+      @-webkit-keyframes primary-indeterminate-translate {
+        0% {
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        20% {
+          -webkit-animation-timing-function: cubic-bezier(.5, 0, .701732, .495819);
+          animation-timing-function: cubic-bezier(.5, 0, .701732, .495819);
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        59.15% {
+          -webkit-animation-timing-function: cubic-bezier(.302435, .381352, .55, .956352);
+          animation-timing-function: cubic-bezier(.302435, .381352, .55, .956352);
+          -webkit-transform: translateX(83.67142%);
+          transform: translateX(83.67142%);
+        }
+
+        100% {
+          -webkit-transform: translateX(200.611057%);
+          transform: translateX(200.611057%);
+        }
+      }
+
+      @keyframes primary-indeterminate-translate {
+        0% {
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        20% {
+          -webkit-animation-timing-function: cubic-bezier(.5, 0, .701732, .495819);
+          animation-timing-function: cubic-bezier(.5, 0, .701732, .495819);
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        59.15% {
+          -webkit-animation-timing-function: cubic-bezier(.302435, .381352, .55, .956352);
+          animation-timing-function: cubic-bezier(.302435, .381352, .55, .956352);
+          -webkit-transform: translateX(83.67142%);
+          transform: translateX(83.67142%);
+        }
+
+        100% {
+          -webkit-transform: translateX(200.611057%);
+          transform: translateX(200.611057%);
+        }
+      }
+
+      @-webkit-keyframes primary-indeterminate-translate-reverse {
+        0% {
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        20% {
+          -webkit-animation-timing-function: cubic-bezier(.5, 0, .701732, .495819);
+          animation-timing-function: cubic-bezier(.5, 0, .701732, .495819);
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        59.15% {
+          -webkit-animation-timing-function: cubic-bezier(.302435, .381352, .55, .956352);
+          animation-timing-function: cubic-bezier(.302435, .381352, .55, .956352);
+          -webkit-transform: translateX(-83.67142%);
+          transform: translateX(-83.67142%);
+        }
+
+        100% {
+          -webkit-transform: translateX(-200.611057%);
+          transform: translateX(-200.611057%);
+        }
+      }
+
+      @keyframes primary-indeterminate-translate-reverse {
+        0% {
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        20% {
+          -webkit-animation-timing-function: cubic-bezier(.5, 0, .701732, .495819);
+          animation-timing-function: cubic-bezier(.5, 0, .701732, .495819);
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        59.15% {
+          -webkit-animation-timing-function: cubic-bezier(.302435, .381352, .55, .956352);
+          animation-timing-function: cubic-bezier(.302435, .381352, .55, .956352);
+          -webkit-transform: translateX(-83.67142%);
+          transform: translateX(-83.67142%);
+        }
+
+        100% {
+          -webkit-transform: translateX(-200.611057%);
+          transform: translateX(-200.611057%);
+        }
+      }
+
+      @-webkit-keyframes primary-indeterminate-scale {
+        0% {
+          -webkit-transform: scaleX(.08);
+          transform: scaleX(.08);
+        }
+
+        36.65% {
+          -webkit-animation-timing-function: cubic-bezier(.334731, .124820, .785844, 1);
+          animation-timing-function: cubic-bezier(.334731, .124820, .785844, 1);
+          -webkit-transform: scaleX(.08);
+          transform: scaleX(.08);
+        }
+
+        69.15% {
+          -webkit-animation-timing-function: cubic-bezier(.06, .11, .6, 1);
+          animation-timing-function: cubic-bezier(.06, .11, .6, 1);
+          -webkit-transform: scaleX(.661479);
+          transform: scaleX(.661479);
+        }
+
+        100% {
+          -webkit-transform: scaleX(.08);
+          transform: scaleX(.08);
+        }
+      }
+
+      @keyframes primary-indeterminate-scale {
+        0% {
+          -webkit-transform: scaleX(.08);
+          transform: scaleX(.08);
+        }
+
+        36.65% {
+          -webkit-animation-timing-function: cubic-bezier(.334731, .124820, .785844, 1);
+          animation-timing-function: cubic-bezier(.334731, .124820, .785844, 1);
+          -webkit-transform: scaleX(.08);
+          transform: scaleX(.08);
+        }
+
+        69.15% {
+          -webkit-animation-timing-function: cubic-bezier(.06, .11, .6, 1);
+          animation-timing-function: cubic-bezier(.06, .11, .6, 1);
+          -webkit-transform: scaleX(.661479);
+          transform: scaleX(.661479);
+        }
+
+        100% {
+          -webkit-transform: scaleX(.08);
+          transform: scaleX(.08);
+        }
+      }
+
+      @-webkit-keyframes secondary-indeterminate-translate {
+        0% {
+          -webkit-animation-timing-function: cubic-bezier(.15, 0, .515058, .409685);
+          animation-timing-function: cubic-bezier(.15, 0, .515058, .409685);
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        25% {
+          -webkit-animation-timing-function: cubic-bezier(.310330, .284058, .8, .733712);
+          animation-timing-function: cubic-bezier(.310330, .284058, .8, .733712);
+          -webkit-transform: translateX(37.651913%);
+          transform: translateX(37.651913%);
+        }
+
+        48.35% {
+          -webkit-animation-timing-function: cubic-bezier(.4, .627035, .6, .902026);
+          animation-timing-function: cubic-bezier(.4, .627035, .6, .902026);
+          -webkit-transform: translateX(84.386165%);
+          transform: translateX(84.386165%);
+        }
+
+        100% {
+          -webkit-transform: translateX(160.277782%);
+          transform: translateX(160.277782%);
+        }
+      }
+
+      @keyframes secondary-indeterminate-translate {
+        0% {
+          -webkit-animation-timing-function: cubic-bezier(.15, 0, .515058, .409685);
+          animation-timing-function: cubic-bezier(.15, 0, .515058, .409685);
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        25% {
+          -webkit-animation-timing-function: cubic-bezier(.310330, .284058, .8, .733712);
+          animation-timing-function: cubic-bezier(.310330, .284058, .8, .733712);
+          -webkit-transform: translateX(37.651913%);
+          transform: translateX(37.651913%);
+        }
+
+        48.35% {
+          -webkit-animation-timing-function: cubic-bezier(.4, .627035, .6, .902026);
+          animation-timing-function: cubic-bezier(.4, .627035, .6, .902026);
+          -webkit-transform: translateX(84.386165%);
+          transform: translateX(84.386165%);
+        }
+
+        100% {
+          -webkit-transform: translateX(160.277782%);
+          transform: translateX(160.277782%);
+        }
+      }
+
+      @-webkit-keyframes secondary-indeterminate-translate-reverse {
+        0% {
+          -webkit-animation-timing-function: cubic-bezier(.15, 0, .515058, .409685);
+          animation-timing-function: cubic-bezier(.15, 0, .515058, .409685);
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        25% {
+          -webkit-animation-timing-function: cubic-bezier(.310330, .284058, .8, .733712);
+          animation-timing-function: cubic-bezier(.310330, .284058, .8, .733712);
+          -webkit-transform: translateX(-37.651913%);
+          transform: translateX(-37.651913%);
+        }
+
+        48.35% {
+          -webkit-animation-timing-function: cubic-bezier(.4, .627035, .6, .902026);
+          animation-timing-function: cubic-bezier(.4, .627035, .6, .902026);
+          -webkit-transform: translateX(-84.386165%);
+          transform: translateX(-84.386165%);
+        }
+
+        100% {
+          -webkit-transform: translateX(-160.277782%);
+          transform: translateX(-160.277782%);
+        }
+      }
+
+      @keyframes secondary-indeterminate-translate-reverse {
+        0% {
+          -webkit-animation-timing-function: cubic-bezier(.15, 0, .515058, .409685);
+          animation-timing-function: cubic-bezier(.15, 0, .515058, .409685);
+          -webkit-transform: translateX(0px);
+          transform: translateX(0px);
+        }
+
+        25% {
+          -webkit-animation-timing-function: cubic-bezier(.310330, .284058, .8, .733712);
+          animation-timing-function: cubic-bezier(.310330, .284058, .8, .733712);
+          -webkit-transform: translateX(-37.651913%);
+          transform: translateX(-37.651913%);
+        }
+
+        48.35% {
+          -webkit-animation-timing-function: cubic-bezier(.4, .627035, .6, .902026);
+          animation-timing-function: cubic-bezier(.4, .627035, .6, .902026);
+          -webkit-transform: translateX(-84.386165%);
+          transform: translateX(-84.386165%);
+        }
+
+        100% {
+          -webkit-transform: translateX(-160.277782%);
+          transform: translateX(-160.277782%);
+        }
+      }
+
+      @-webkit-keyframes secondary-indeterminate-scale {
+        0% {
+          -webkit-animation-timing-function: cubic-bezier(.205028, .057051, .576610, .453971);
+          animation-timing-function: cubic-bezier(.205028, .057051, .576610, .453971);
+          -webkit-transform: scaleX(.08);
+          transform: scaleX(.08);
+        }
+
+        19.15% {
+          -webkit-animation-timing-function: cubic-bezier(.152313, .196432, .648374, 1.004315);
+          animation-timing-function: cubic-bezier(.152313, .196432, .648374, 1.004315);
+          -webkit-transform: scaleX(.457104);
+          transform: scaleX(.457104);
+        }
+
+        44.15% {
+          -webkit-animation-timing-function: cubic-bezier(.257759, -0.003163, .211762, 1.381790);
+          animation-timing-function: cubic-bezier(.257759, -0.003163, .211762, 1.381790);
+          -webkit-transform: scaleX(.727960);
+          transform: scaleX(.727960);
+        }
+
+        100% {
+          -webkit-transform: scaleX(.08);
+          transform: scaleX(.08);
+        }
+      }
+
+      @keyframes secondary-indeterminate-scale {
+        0% {
+          -webkit-animation-timing-function: cubic-bezier(.205028, .057051, .576610, .453971);
+          animation-timing-function: cubic-bezier(.205028, .057051, .576610, .453971);
+          -webkit-transform: scaleX(.08);
+          transform: scaleX(.08);
+        }
+
+        19.15% {
+          -webkit-animation-timing-function: cubic-bezier(.152313, .196432, .648374, 1.004315);
+          animation-timing-function: cubic-bezier(.152313, .196432, .648374, 1.004315);
+          -webkit-transform: scaleX(.457104);
+          transform: scaleX(.457104);
+        }
+
+        44.15% {
+          -webkit-animation-timing-function: cubic-bezier(.257759, -0.003163, .211762, 1.381790);
+          animation-timing-function: cubic-bezier(.257759, -0.003163, .211762, 1.381790);
+          -webkit-transform: scaleX(.727960);
+          transform: scaleX(.727960);
+        }
+
+        100% {
+          -webkit-transform: scaleX(.08);
+          transform: scaleX(.08);
+        }
+      }
+    </style>
+
+    <div id="bufferingDots"></div>
+    <div id="buffer"></div>
+    <div class="progressBar" id="progressPrimary">
+      <span class="progressBarInner"></span>
+    </div>
+    <div class="progressBar" id="progressSecondary">
+      <span class="progressBarInner"></span>
+    </div>
+  </template>
+
+  <script>
+    Polymer({
+
+      /**
+       * Fired whenever the progress value changes.
+       *
+       * @event paper-linear-progress-value-change
+       * @detail {{value: Number}}
+       */
+
+      /**
+       * Fired whenever the buffer value changes.
+       *
+       * @event paper-linear-progress-buffer-value-change
+       * @detail {{bufferValue: Number}}
+       */
+
+      is: 'paper-linear-progress',
+
+      behaviors: [
+        // NOTE(traviskaufman): This is needed because we have to use a var() for the animation.
+        // Ideally, we would not need neon-animation at all and instead perform this animation using
+        // the `--element-height` custom property.
+        // ```
+        // @keyframes buffering {
+        //   to {
+        //     transform: translateX(calc(-2.5 * var(--element-height)));
+        //   }
+        // }
+        //
+        // :host(.buffering) {
+        //   animation: buffering 250ms linear infinite;
+        // }
+        //
+        // /* similar for buffering + reversed */
+        // ```
+        // Until https://github.com/Polymer/polymer/issues/2399 is fixed, however, this cannot be
+        // done.
+        Polymer.NeonAnimationRunnerBehavior
+      ],
+
+      properties: {
+        /**
+         * The value of the primary progress of the operation, expressed as a number from [0, 100]
+         * representing the percentage complete of the operation. Note that the value will be
+         * clamped if it is less than/greater than 0/100, respectively.
+         */
+        value: {
+          type: Number,
+          observer: '__valueChanged',
+          value: 0
+        },
+
+        /**
+         * The buffer value of the linear progress element, expressed as a number from [0, 100]
+         * representing the percentage complete of buffering. Note that the value will be clamped
+         * if it is less than/greater than 0/100, respectively.
+         */
+        bufferValue: {
+          type: Number,
+          observer: '__bufferValueChanged',
+          value: 100
+        },
+
+        /**
+         * When set, progress bars animate across the element, expressing an operation which takes
+         * an unknown amount of time.
+         */
+        indeterminate: {
+          type: Boolean,
+          observer: '__indeterminateChanged',
+          // We give a default value so that correct ARIA attributes are applied when element is
+          // initialized.
+          value: false
+        },
+
+        /**
+         * When set, will reverse all animations, transforms, and transitions occuring within the
+         * element. Useful when working with RTL languages, as well as distinguishing between phases
+         * of an operation.
+         */
+        reversed: {
+          type: Boolean,
+          observer: '__reversedChanged'
+        },
+
+        /**
+         * When set, will display buffering dots which appear to animate across the element. Useful
+         * when displaying progress for operations involving media, during which content may need to
+         * be buffered.
+         */
+        buffering: {
+          type: Boolean,
+          observer: '__bufferingChanged'
+        },
+
+        /**
+         * When set, the linear progress element will be hidden from view. Note that this is
+         * _different_ from `hidden`, as it does not set `display: none;` but rather just changes
+         * the element's opacity.
+         */
+        closed: {
+          type: Boolean,
+          observer: '__closedChanged'
+        },
+
+        /**
+         * Animation configuration for NeonAnimationRunnerBehavior.
+         */
+        animationConfig: {
+          value: function() {
+            // NOTE(traviskaufman): This is initialized within the attached() method, once we know
+            // the height of the progress indicator.
+            return {};
+          }
+        },
+
+        __needsBufferingAnimationOnAttached: {
+          // HACK: We want to have buffering play an animation when it's set, but we can't
+          // animate unless we first have the computed height of the element, which we can only
+          // retrieve once the element's attached. Therefore, we set up a queue of animations that
+          // need to be run, and if we encounter any animations. Note that this can be fixed once
+          // https://github.com/Polymer/polymer/issues/2399 is resolved. Then, we can do all
+          // animations within CSS.
+          type: Boolean,
+          value: false
+        }
+      },
+
+      hostAttributes: {
+        role: 'progressbar'
+      },
+
+      attached: function() {
+        this.__applyBufferingDotsBackground();
+        this.__applyAnimationConfig();
+        if (this.__needsBufferingAnimationOnAttached) {
+          this.__playCorrectBufferingAnimation();
+        }
+      },
+
+      __valueChanged: function(newValue) {
+        this.__scaleToPercent(newValue, this.$.progressPrimary);
+        if (!this.indeterminate) {
+          this.setAttribute('aria-valuenow', newValue);
+        }
+        this.fire('paper-linear-progress-value-change', {value: newValue});
+      },
+
+      __bufferValueChanged: function(newBufferValue) {
+        this.__scaleToPercent(newBufferValue, this.$.buffer);
+        this.fire('paper-linear-progress-buffer-value-change', {bufferValue: newBufferValue});
+      },
+
+      __indeterminateChanged: function(isIndeterminate) {
+        this.__forceLayoutIfHasClass('reversed');
+        this.toggleClass('indeterminate', isIndeterminate);
+        if (isIndeterminate) {
+          this.removeAttribute('aria-valuemin');
+          this.removeAttribute('aria-valuemax');
+          this.removeAttribute('aria-valuenow');
+        } else {
+          this.setAttribute('aria-valuemin', 0);
+          this.setAttribute('aria-valuemax', 100);
+          this.setAttribute('aria-valuenow', this.value);
+        }
+      },
+
+      __reversedChanged: function(isReversed) {
+        this.__forceLayoutIfHasClass('indeterminate');
+        this.toggleClass('reversed', isReversed);
+        if (this.buffering) {
+          this.__playCorrectBufferingAnimation();
+        }
+      },
+
+      __bufferingChanged: function(isBuffering) {
+        this.toggleClass('buffering', isBuffering);
+
+        var isAnimationReady = 'buffering' in this.animationConfig;
+        if (isBuffering) {
+          if (isAnimationReady) {
+            this.__playCorrectBufferingAnimation();
+          } else {
+            this.__needsBufferingAnimationOnAttached = true;
+          }
+        } else {
+          if (isAnimationReady) {
+            this.cancelAnimation();
+          } else {
+            this.__needsBufferingAnimationOnAttached = false;
+          }
+        }
+      },
+
+      __closedChanged: function(isClosed) {
+        this.toggleClass('closed', isClosed);
+      },
+
+      __applyBufferingDotsBackground: function() {
+        var bgColor = window.getComputedStyle(this.$.buffer).backgroundColor;
+        var prologue = 'url("data:image/svg+xml;charset=UTF-8,';
+        // NOTE(traviskaufman): Single-quotes are needed around SVG attributes in order for it to
+        // render properly in all browsers, hence the escaped single-quote strings as opposed to
+        // double-quoting.
+        var bufferingDotsSVG = '' +
+          '<svg version=\'1.1\' ' +
+              'xmlns=\'http://www.w3.org/2000/svg\' ' +
+              'xmlns:xlink=\'http://www.w3.org/1999/xlink\' ' +
+              'x=\'0px\' y=\'0px\' ' +
+              'enable-background=\'new 0 0 5 2\' ' +
+              'xml:space=\'preserve\' ' +
+              'viewBox=\'0 0 5 2\' ' +
+              'preserveAspectRatio=\'none slice\'> ' +
+            '<circle cx=\'1\' cy=\'1\' r=\'1\' fill=\'' + bgColor + '\'/>' +
+          '</svg>';
+        var epilogue = '")';
+        var encodedDots = encodeURIComponent(bufferingDotsSVG).replace(/'/g, '%27');
+        var svgBackgroundUrl = prologue + encodedDots + epilogue;
+        this.$.bufferingDots.style.backgroundImage = svgBackgroundUrl;
+      },
+
+      __applyAnimationConfig: function() {
+        var computedHeight = parseInt(window.getComputedStyle(this).height, 10);
+        var bufferingDots = this.$.bufferingDots;
+        // Since the buffering dots SVG has a viewBox that's 5px by 2px, to translate the dots
+        // by the width of the viewbox (and therefore show the illusion of a "continuous" moving
+        // element), we need to translate it by 2.5 * the height of the element.
+        var translationAmt = 2.5 * computedHeight;
+        var timing = {
+          duration: 250,
+          iterations: Infinity,
+          easing: 'linear'
+        };
+
+        this.animationConfig = {
+          'buffering': {
+            name: 'transform-animation',
+            node: bufferingDots,
+            transformFrom: 'translateX(0px)',
+            // Use -1 to move the dots left.
+            transformTo: 'translateX(' + (translationAmt * -1) + 'px)',
+            timing: timing
+          },
+
+          'buffering-reverse': {
+            name: 'transform-animation',
+            node: bufferingDots,
+            transformFrom: 'translateX(0px)',
+            transformTo: 'translateX(' + translationAmt + 'px)',
+            timing: timing
+          }
+        };
+      },
+
+      __forceLayoutIfHasClass: function(className) {
+        var classList = Polymer.dom(this).classList;
+        if (classList.contains(className)) {
+          classList.remove(className);
+          // Touch offsetWidth to force layout.
+          this.offsetWidth;
+          classList.add(className);
+        }
+      },
+
+      __scaleToPercent: function(pct, node) {
+        var min = 0, max = 100
+        var normValue;
+
+        if (pct < min) {
+          pct = min;
+        } else if (pct > max) {
+          pct = max;
+        }
+
+        normValue = pct/100;
+        this.transform('scaleX(' + normValue + ')', node);
+      },
+
+      __playCorrectBufferingAnimation: function() {
+        var animationToPlay = this.reversed ? 'buffering-reverse' : 'buffering';
+        this.playAnimation(animationToPlay);
+      }
+    });
+  </script>
+</dom-module>
